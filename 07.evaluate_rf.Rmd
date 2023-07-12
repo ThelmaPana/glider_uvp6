@@ -1,0 +1,284 @@
+---
+title: "Evaluate CNN: evaluate CNN and compute metricts after precision calibration"
+author: "Thelma Panaiotis"
+date: "09/01/2023"
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    collapsed: false
+    fig_width: 10
+    fig_height: 8 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(reticulate)
+library(grid)
+library(gridExtra)
+library(scales)
+library(MLmetrics)
+library(ggrepel)
+library(gt)
+
+
+```
+
+## Prepare data
+
+Read test set predictions and scores.
+
+```{r read_preds}
+df <- read_csv("data/dataset/test/05.test_dataset_predictions_rf.csv", col_types = cols())  %>% select(y_true = taxon, y_pred, score = score_pred)
+taxa <- sort(unique(df$y_true))
+```
+
+
+Plot composition of test set.
+
+```{r test_comp}
+counts_y_true <- df %>% 
+  count(y_true) %>% 
+  arrange(desc(n)) %>% 
+  mutate(y_true = fct_inorder(y_true))
+
+counts_y_true %>% 
+  ggplot() +
+  geom_col(aes(x = y_true, y = n, fill = n > 10)) +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Composition of test set")
+```
+
+Read thresholds and join them with predictions. 
+
+```{r read_thresholds}
+threshold <- read_csv("data/06.taxa_threshold.csv", col_types = cols()) %>% select(y_pred=taxon, score_threshold, plankton, usable)
+
+test_preds <- df %>% left_join(threshold, by = "y_pred")
+```
+
+
+## Classification performances before thresholding
+
+Compute global accuracy and precision and recall for each class.
+
+```{r metrics_before}
+accuracy <- sum(test_preds$y_pred == test_preds$y_true, na.rm = TRUE) / length(test_preds$y_true)
+
+recall <- test_preds %>% 
+  group_by(y_true) %>% 
+  summarise(recall = sum(y_true == y_pred, na.rm = TRUE) / n()) %>% 
+  ungroup()
+
+precision <- test_preds %>% 
+  #filter(!is.na(y_new_pred)) %>% 
+  group_by(y_pred) %>% 
+  summarise(precision = sum(y_true == y_pred, na.rm = TRUE) / n()) %>% 
+  ungroup() 
+
+# Store precision and recall per taxon in one table
+report <- full_join(precision %>% rename(class = y_pred), recall %>% rename(class = y_true), by = "class") %>% 
+  replace_na(list(precision = 0, recall = 0)) %>% 
+  left_join(counts_y_true %>% rename(class = y_true), by = "class") %>% 
+  left_join(threshold %>% select(class = y_pred, plankton, usable),  by = "class") %>% 
+  replace_na(list(n = 0)) %>% 
+  mutate(n_plankton = n * plankton)
+
+# Compute average precision and recall
+macro_recall <- mean(report$recall)
+macro_precision <- mean(report$precision)
+weighted_recall <- weighted.mean(report$recall, report$n)
+weighted_precision <- weighted.mean(report$precision, report$n)
+plankton_weighted_recall <- weighted.mean(report$recall, report$n_plankton)
+plankton_weighted_precision <- weighted.mean(report$precision, report$n_plankton)
+
+```
+
+Classification metrics:
+
+- Accuracy: `r round(accuracy, digits = 2)`
+- Macro recall: `r round(macro_recall, digits = 2)`
+- Macro precision: `r round(macro_precision, digits = 2)`
+- Weighted recall: `r round(weighted_recall, digits = 2)`
+- Weighted precision: `r round(weighted_precision, digits = 2)`
+- Plankton weighted recall: `r round(plankton_weighted_recall, digits = 2)`
+- Plankton weighted precision: `r round(plankton_weighted_precision, digits = 2)`
+
+
+### Classification report
+
+Plot a classification report to see precision and recall value for each class.
+
+```{r report_before}
+report %>% 
+  select(-c(n_plankton, usable)) %>% 
+  rename(taxon = class) %>% 
+  arrange(taxon) %>% 
+  gt() %>% 
+  tab_header(title = "Classification report before thresholding") %>% 
+    cols_align(
+    align = "left",
+    columns = taxon
+  ) %>% 
+  data_color(
+    columns = c(precision, recall),
+    colors = scales::col_numeric(
+      palette = c("white", "#3fc1c9"),
+      domain = NULL
+    )
+  )
+```
+
+
+### Recall VS precision
+
+Let’s plot another representation. 
+
+```{r report_other_before, fig.width = 10, fig.height = 8}
+report %>% 
+  ggplot() +
+  geom_point(aes(x = precision, y = recall, color = plankton)) +
+  geom_text_repel(aes(x = precision, y = recall, label = class)) +
+  xlim(0, 1) + ylim(0, 1) +
+  labs(title = "Recall and precision for each class")
+```
+
+### Confusion matrix
+
+Generate and plot a confusion matrix.
+
+```{r cm_before, fig.width = 11, fig.height = 10}
+
+CM <- ConfusionMatrix(test_preds$y_pred, test_preds$y_true) %>% 
+  as_tibble() %>% 
+  group_by(y_true) %>% 
+  mutate(prop = n / sum(n)) 
+
+CM %>% 
+  ggplot() +
+  geom_tile(aes(y_pred, y_true, fill= prop)) +
+  scale_fill_gradient(low = "white", high = "#009194") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), text = element_text(size=14)) +
+  labs(title = "Confusion matrix")
+  
+```
+
+
+## Classification performances after thresholding
+
+For each prediction with a score lower than threshold, set prediction to NA.
+
+```{r threshold_preds}
+test_preds <- test_preds %>% mutate(y_new_pred = ifelse(score > score_threshold, y_pred, NA))
+```
+
+Compute global accuracy and precision and recall for each class.
+
+```{r metrics_a}
+accuracy <- sum(test_preds$y_new_pred == test_preds$y_true, na.rm = TRUE) / length(test_preds$y_true)
+
+recall <- test_preds %>% 
+  group_by(y_true) %>% 
+  summarise(recall = sum(y_true == y_new_pred, na.rm = TRUE) / n()) %>% 
+  ungroup()
+
+precision <- test_preds %>% 
+  filter(!is.na(y_new_pred)) %>% 
+  group_by(y_new_pred) %>% 
+  summarise(precision = sum(y_true == y_new_pred, na.rm = TRUE) / n()) %>% 
+  ungroup() 
+
+# Store precision and recall per taxon in one table
+report <- full_join(precision %>% rename(class = y_new_pred), recall %>% rename(class = y_true), by = "class") %>% 
+  replace_na(list(precision = 0, recall = 0, n = 0)) %>% 
+  left_join(counts_y_true %>% rename(class = y_true), by = "class") %>% 
+  left_join(threshold %>% select(class = y_pred, plankton, usable),  by = "class") %>% 
+  replace_na(list(n = 0)) %>% 
+  mutate(n_plankton = n * plankton)
+
+# Compute average precision and recall
+macro_recall <- mean(report$recall)
+macro_precision <- mean(report$precision)
+weighted_recall <- weighted.mean(report$recall, report$n)
+weighted_precision <- weighted.mean(report$precision, report$n)
+plankton_weighted_recall <- weighted.mean(report$recall, report$n_plankton)
+plankton_weighted_precision <- weighted.mean(report$precision, report$n_plankton)
+
+```
+
+Classification metrics:
+
+- Accuracy: `r round(accuracy, digits = 2)`
+- Macro recall: `r round(macro_recall, digits = 2)`
+- Macro precision: `r round(macro_precision, digits = 2)`
+- Weighted recall: `r round(weighted_recall, digits = 2)`
+- Weighted precision: `r round(weighted_precision, digits = 2)`
+- Plankton weighted recall: `r round(plankton_weighted_recall, digits = 2)`
+- Plankton weighted precision: `r round(plankton_weighted_precision, digits = 2)`
+
+
+### Classification report
+
+Plot a classification report to see precision and recall value for each class.
+
+```{r report, fig.width = 6, fig.height = 10}
+report %>% 
+  select(-c(n_plankton, usable)) %>% 
+  rename(taxon = class) %>% 
+  arrange(taxon) %>% 
+  gt() %>% 
+  tab_header(title = "Classification report after thresholding") %>% 
+    cols_align(
+    align = "left",
+    columns = taxon
+  ) %>% 
+  data_color(
+    columns = c(precision, recall),
+    colors = scales::col_numeric(
+      palette = c("white", "#3fc1c9"),
+      domain = NULL
+    )
+  )
+```
+
+
+### Recall VS precision
+
+Let’s plot another representation. 
+
+```{r report_other, fig.width = 10, fig.height = 8}
+report %>% 
+  ggplot() +
+  geom_point(aes(x = precision, y = recall, color = plankton, shape = usable)) +
+  geom_text_repel(aes(x = precision, y = recall, label = class)) +
+  xlim(0, 1) + ylim(0, 1) +
+  labs(title = "Recall and precision for each class")
+```
+
+Most classes have a decent precision, but some have a quite low recall.
+
+### Confusion matrix
+
+Generate and plot a confusion matrix.
+
+```{r cm, fig.width = 11, fig.height = 10}
+
+CM <- ConfusionMatrix(test_preds$y_new_pred, test_preds$y_true) %>% 
+  as_tibble() %>% 
+  group_by(y_true) %>% 
+  mutate(prop = n / sum(n)) 
+
+CM %>% 
+  ggplot() +
+  geom_tile(aes(y_pred, y_true, fill= prop)) +
+  scale_fill_gradient(low = "white", high = "#009194") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), text = element_text(size=14)) +
+  labs(title = "Confusion matrix")
+  
+```
+
+Recall of Appendicularia is very low, we will have to validate them all in Ecotaxa. Same for Rhizaria.
