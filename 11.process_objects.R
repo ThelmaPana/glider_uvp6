@@ -98,7 +98,7 @@ parts_conc <- parts %>%
 
 ## Save ----
 #--------------------------------------------------------------------------#
-write_parquet(obj_conc, sink = "data/11.obj_conc.parquet")
-write_parquet(parts_conc, sink = "data/11.parts_conc.parquet")
+write_parquet(obj_conc, sink = file.path(save_dir, "11.obj_conc.parquet"))
+write_parquet(parts_conc, sink = file.path(save_dir, "11.parts_conc.parquet"))
 
 

@@ -130,7 +130,7 @@ ctd_int %>%
   scale_fill_cmocean(na.value = NA) +
   theme_minimal()
 
-write_parquet(ctd_int, sink = "data/12.ctd_int.parquet")
+write_parquet(ctd_int, sink = file.path(save_dir, "12.ctd_int.parquet"))
 
 
 ## Fine interpolation
@@ -182,7 +182,7 @@ for (id in all_mission){
 
 ctd_int_fine <- ctd_int_fine %>% left_join(dates)
 
-write_parquet(ctd_int_fine, sink = "data/12.ctd_int_fine.parquet")
+write_parquet(ctd_int_fine, sink = file.path(save_dir, "12.ctd_int_fine.parquet"))
 
 
 
@@ -239,11 +239,11 @@ for (id in all_mission){
 plankton_int <- conc_int %>% left_join(dates)
 
 
-write_parquet(plankton_int, sink = "data/12.plankton_int.parquet")
+write_parquet(plankton_int, sink = file.path(save_dir, "12.plankton_int.parquet"))
 
 plankton_int %>% 
   ggplot() +
-  geom_tile(aes(x = dist, y = -depth, fill = Copepoda)) +
+  geom_tile(aes(x = dist, y = -depth, fill = Rhizaria)) +
   geom_contour(aes(x = dist, y = -depth, z = sal), breaks = c(38.2, 38.3), color = "white", size = 0.5, data = ctd_int_fine) +
   facet_wrap(~date, ncol = 4) +
   scale_fill_viridis_c(trans = "log1p", na.value = NA) +
@@ -304,7 +304,7 @@ for (id in all_mission){
 
 part_int <- part_int %>% left_join(dates)
 
-write_parquet(part_int, sink = "data/12.part_int.parquet")
+write_parquet(part_int, sink = file.path(save_dir, "12.part_int"))
 
 ## Fine interpolation
 step_x <- 0.2 # fine interpolation step in X axis: 0.2 km or 200 m
@@ -344,10 +344,5 @@ for (id in all_mission){
 
 part_int_fine <- part_int_fine %>% left_join(dates)
 
-write_parquet(part_int_fine, sink = "data/12.part_int_fine.parquet")
-
-
-
-
-
+write_parquet(part_int_fine, sink = file.path(save_dir, "12.part_int_fine"))
 

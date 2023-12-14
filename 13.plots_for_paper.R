@@ -599,7 +599,7 @@ p4 <- plankton_int %>%
   geom_rect(aes(xmin = beg, xmax = end, ymin = -320, ymax = 15), fill = "gray80", data = nights %>% filter(mission_det %in% paper_transects)) +
   geom_raster(aes(x = dist, y = -depth, fill = Rhizaria)) +
   geom_contour(aes(x = dist, y = -depth, z = sal), breaks = c(38.2, 38.3), colour = "white", linewidth = 0.2, data = ctd_int_fine %>% filter(mission_det %in% paper_transects)) +
-  scale_fill_viridis_c(trans = "log1p", na.value = NA) +
+  scale_fill_viridis_c(trans = "log1p", na.value = NA, breaks = c(0, 5, 10)) +
   scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
   coord_cartesian(clip = "off", ylim = c(-300, 0)) +
   labs(x = "Distance from shore (km)", y = "Depth (m)", fill = expression(paste("Rhizaria (", m^{-3}, ")"))) +

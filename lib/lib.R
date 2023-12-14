@@ -1,3 +1,11 @@
+## Dir to save data on complex ----
+#--------------------------------------------------------------------------#
+save_dir <- "/remote/complex/home/tpanaiotis/datasets/glider_uvp6/data"
+
+## Useful functions ----
+#--------------------------------------------------------------------------#
+
+
 scale2 <- function(x, na.rm = T){(x - mean(x, na.rm = na.rm)) / sd(x, na.rm)}
 
 rad2deg <- function(rad) {(rad * 180) / (pi)}

@@ -7,21 +7,26 @@
 
 library(tidyverse)
 library(lubridate)
+library(suncalc)
 library(arrow)
 library(tidync)
 library(cmocean)
+library(castr)
+library(patchwork)
 source("lib/lib.R")
 
 
 ## Read data ----
 #--------------------------------------------------------------------------#
 ctd <- read_parquet("data/10.ctd.parquet")
-obj_conc <- read_parquet("data/11.obj_conc.parquet")
+plankton <- read_parquet("data/11.obj_conc.parquet")
 coast <- read_csv("data/coast.csv", col_types = cols())
+
+taxa <- plankton %>% select(Annelida:Salpida) %>% colnames()
 
 
 ## Wind speed ----
-#--------------------------------------------------------------------------#
+#-------------------------------------------------1-------------------------#
 # Read weather data
 weather <- tibble()
 files <- list.files("data/weather", full.names = TRUE)
@@ -541,6 +546,7 @@ dn_conc_ks %>%
   coord_flip() +
   theme_minimal() +
   labs(x = "Depth (m)", y = expression(paste("Concentration (ind.", m^{-3}, ")")), color = "") +
+  #scale_y_continuous(breaks = pretty(dn_conc_ks_plot$conc),labels = abs(pretty(dn_conc_ks_plot$conc))) +
   facet_wrap(~taxon, scales = "free") +
   theme(text = element_text(size = 10))
 ggsave(file = "figures/15.sup_dn_conc_ks.pdf", width = 164, height = 100, unit = "mm", dpi = 300)
@@ -568,3 +574,104 @@ surf_dist %>%
   geom_density(aes(x = surf_dist, color = mission_det)) +
   labs(x = "Distance between two surfacing events")
 
+
+## Hovmöller ----
+#--------------------------------------------------------------------------#
+dates <- ctd %>% 
+  mutate(date = date(datetime)) %>% 
+  select(mission_det, date) %>% 
+  group_by(mission_det) %>% 
+  slice(1) %>% 
+  ungroup()
+
+plankton_hov <- plankton %>% 
+  filter(depth < 315) %>% 
+  left_join(dates) %>% 
+  mutate(depth = roundp(depth, precision = 10)) %>% 
+  select(mission_det, date, depth, Appendicularia, Copepoda, Rhizaria, Salpida) %>% 
+  group_by(mission_det, date, depth) %>% 
+  summarise_at(vars(Appendicularia:Salpida), mean) %>% 
+  ungroup()
+
+tile_width <- 4
+tile_height <- 10
+
+p1 <- plankton_hov %>% 
+  ggplot() +
+  geom_tile(aes(x = date, y = -depth, fill = Appendicularia, width = tile_width, height = tile_height)) +
+  scale_x_date(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+  scale_fill_viridis_c(trans = "log1p") +
+  labs(x = "Date", y = "Depth (m)", fill = expression(paste("Appendicularia (", m^{-3}, ")"))) +
+  theme_minimal() +
+  guides(fill = guide_colourbar(barwidth = 0.5, barheigh = 2.5)) +
+  theme(
+    text = element_text(size = 10), legend.title = element_text(size = 10),
+    axis.text.x = element_blank(), axis.title.x = element_blank(), 
+    strip.text.x = element_text(size = 10, hjust = 1),
+    plot.margin = margin(0, 0, 0, 0, "pt")
+  )
+
+p2 <- plankton_hov %>% 
+  ggplot() +
+  geom_tile(aes(x = date, y = -depth, fill = Copepoda, width = tile_width, height = tile_height)) +
+  scale_x_date(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+  scale_fill_viridis_c(trans = "log1p", breaks = c(0, 10, 100)) +
+  labs(x = "Date", y = "Depth (m)", fill = expression(paste("Copepoda (", m^{-3}, ")"))) +
+  theme_minimal() +
+  guides(fill = guide_colourbar(barwidth = 0.5, barheigh = 2.5)) +
+  theme(
+    text = element_text(size = 10), legend.title = element_text(size = 10),
+    axis.text.x = element_blank(), axis.title.x = element_blank(), 
+    strip.text.x = element_text(size = 10, hjust = 1),
+    plot.margin = margin(5, 0, 0, 0, "pt")
+  )
+
+p3 <- plankton_hov %>% 
+  ggplot() +
+  geom_tile(aes(x = date, y = -depth, fill = Salpida, width = tile_width, height = tile_height)) +
+  scale_x_date(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+  scale_fill_viridis_c(trans = "log1p", breaks = c(0, 10, 50)) +
+  labs(x = "Date", y = "Depth (m)", fill = expression(paste("Salpida (", m^{-3}, ")"))) +
+  theme_minimal() +
+  guides(fill = guide_colourbar(barwidth = 0.5, barheigh = 2.5)) +
+  theme(
+    text = element_text(size = 10), legend.title = element_text(size = 10),
+    axis.text.x = element_blank(), axis.title.x = element_blank(), 
+    strip.text.x = element_text(size = 10, hjust = 1),
+    plot.margin = margin(5, 0, 0, 0, "pt")
+  )
+
+p4 <- plankton_hov %>% 
+  ggplot() +
+  geom_tile(aes(x = date, y = -depth, fill = Rhizaria, width = tile_width, height = tile_height)) +
+  scale_x_date(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+  scale_fill_viridis_c(trans = "log1p", breaks = c(0, 5)) +
+  labs(x = "Date", y = "Depth (m)", fill = expression(paste("Rhizaria (", m^{-3}, ")"))) +
+  theme_minimal() +
+  guides(fill = guide_colourbar(barwidth = 0.5, barheigh = 2.5)) +
+  theme(
+    text = element_text(size = 10), legend.title = element_text(size = 10),
+    #axis.text.x = element_blank(), axis.title.x = element_blank(), 
+    strip.text.x = element_text(size = 10, hjust = 1),
+    plot.margin = margin(5, 0, 0, 0, "pt")
+  )
+
+p <- p1 / p2 / p3 / p4 
+p
+
+ggsave(plot = p, file = "figures/16.hovmoller_plankton.pdf", width = 160, height = 100, unit = "mm", dpi = 300)
+
+
+## Transects duration ----
+#--------------------------------------------------------------------------#
+durations <- ctd %>% 
+  group_by(mission_det) %>% 
+  filter(row_number()==1 | row_number()==n()) %>% 
+  ungroup() %>% 
+  select(mission_det, datetime) %>% 
+  mutate(time = rep(c("beg", "end"), length.out = 40)) %>% 
+  pivot_wider(values_from = datetime, names_from = time) %>% 
+  mutate(duration = interval(beg, end)/hours(1))
+
+summary(durations)
+durations
